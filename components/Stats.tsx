@@ -58,7 +58,7 @@ export default function Stats({ userProfile, dailyGoals }: StatsProps) {
 
     const days = Object.keys(byDate).length;
     const totals = Object.values(byDate).reduce(
-      (acc: any, day: any) => ({
+      (acc: { calories: number; protein: number; carbs: number; fat: number }, day: any) => ({
         calories: acc.calories + day.calories,
         protein: acc.protein + day.protein,
         carbs: acc.carbs + day.carbs,
