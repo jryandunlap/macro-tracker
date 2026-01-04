@@ -15,21 +15,51 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
+        max_tokens: 1500,
         messages: [
           {
             role: 'user',
-            content: `You are a nutrition expert. The user has logged the following food: "${foodDescription}"
+            content: `You are a nutrition expert. The user has logged: "${foodDescription}"
 
-Please analyze this and return ONLY a JSON object (no markdown, no explanation) with:
-1. canonical_name: A normalized name for this food (e.g., "Grilled Chicken Breast" for "grilled chicken", "chicken breast grilled", etc.)
-2. estimated_calories: Estimated calories
-3. estimated_protein: Estimated protein in grams
-4. estimated_carbs: Estimated carbs in grams
-5. estimated_fat: Estimated fat in grams
-6. portion_note: Brief note about assumed portion size
+Analyze this and return ONLY a JSON object (no markdown, no explanation) with:
 
-Make reasonable assumptions about portion sizes if not specified (e.g., 6oz chicken breast, 1 cup rice, etc.).
+1. meal_type: Determine if this is "breakfast", "lunch", "dinner", or "snack" based on context/foods mentioned
+2. items: An array of individual food items, each with:
+   - canonical_name: Normalized name (e.g., "Grilled Chicken Breast")
+   - original_description: The original text for this item from the user's input
+   - estimated_calories: Calories for THIS item
+   - estimated_protein: Protein in grams for THIS item
+   - estimated_carbs: Carbs in grams for THIS item
+   - estimated_fat: Fat in grams for THIS item
+
+Important:
+- Break down the meal into individual food items
+- Make reasonable assumptions about portion sizes if not specified
+- Each item should have its own nutrition values
+- The sum of all items should equal the total meal nutrition
+
+Example format:
+{
+  "meal_type": "breakfast",
+  "items": [
+    {
+      "canonical_name": "Scrambled Eggs",
+      "original_description": "2 scrambled eggs",
+      "estimated_calories": 180,
+      "estimated_protein": 12,
+      "estimated_carbs": 2,
+      "estimated_fat": 12
+    },
+    {
+      "canonical_name": "Bacon",
+      "original_description": "3 strips of bacon",
+      "estimated_calories": 129,
+      "estimated_protein": 9,
+      "estimated_carbs": 0,
+      "estimated_fat": 10
+    }
+  ]
+}
 
 Return ONLY the JSON object, nothing else.`,
           },
@@ -46,8 +76,8 @@ Return ONLY the JSON object, nothing else.`,
     
     if (content.type === 'text') {
       // Parse the JSON response from Claude
-      const nutritionData = JSON.parse(content.text);
-      return NextResponse.json(nutritionData);
+      const mealData = JSON.parse(content.text);
+      return NextResponse.json(mealData);
     }
 
     return NextResponse.json(
