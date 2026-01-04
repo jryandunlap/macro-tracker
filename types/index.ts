@@ -30,7 +30,23 @@ export interface FoodEntry {
   protein: number;
   carbs: number;
   fat: number;
+  meal_id?: string;
+  meal_type?: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  is_meal_summary: boolean;
   created_at: string;
+}
+
+export interface MealGroup {
+  id: string;
+  meal_type: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  time: string;
+  items: FoodEntry[];
+  totals: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  };
 }
 
 export interface QuickAdd {
