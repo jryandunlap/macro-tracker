@@ -1,6 +1,8 @@
 'use client';
 
-import { DailyGoals, FoodEntry, DailyProgress } from '@/types';
+import { useState } from 'react';
+import { DailyGoals, FoodEntry, DailyProgress, MealGroup } from '@/types';
+import { supabase } from '@/lib/supabase';
 
 interface DashboardHomeProps {
   todayEntries: FoodEntry[];
@@ -9,8 +11,89 @@ interface DashboardHomeProps {
 }
 
 export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: DashboardHomeProps) {
+  const [expandedMeals, setExpandedMeals] = useState<Set<string>>(new Set());
+  const [showBreakdownModal, setShowBreakdownModal] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDeleteMeal = async (mealId: string) => {
+    if (!confirm('Delete this entire meal? This will remove all items.')) return;
+
+    setDeletingId(mealId);
+    try {
+      const { error } = await supabase
+        .from('food_entries')
+        .delete()
+        .eq('meal_id', mealId);
+
+      if (error) throw error;
+      onRefresh();
+    } catch (error) {
+      console.error('Error deleting meal:', error);
+      alert('Failed to delete meal. Please try again.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleDeleteItem = async (itemId: string, mealId: string) => {
+    if (!confirm('Delete this item? The meal total will update.')) return;
+
+    setDeletingId(itemId);
+    try {
+      // Delete the individual item
+      const { error: deleteError } = await supabase
+        .from('food_entries')
+        .delete()
+        .eq('id', itemId);
+
+      if (deleteError) throw deleteError;
+
+      // Recalculate meal summary
+      const { data: remainingItems } = await supabase
+        .from('food_entries')
+        .select('*')
+        .eq('meal_id', mealId)
+        .eq('is_meal_summary', false);
+
+      if (remainingItems && remainingItems.length > 0) {
+        // Update meal summary with new totals
+        const newTotals = remainingItems.reduce(
+          (acc, item) => ({
+            calories: acc.calories + item.calories,
+            protein: acc.protein + item.protein,
+            carbs: acc.carbs + item.carbs,
+            fat: acc.fat + item.fat,
+          }),
+          { calories: 0, protein: 0, carbs: 0, fat: 0 }
+        );
+
+        await supabase
+          .from('food_entries')
+          .update(newTotals)
+          .eq('meal_id', mealId)
+          .eq('is_meal_summary', true);
+      } else {
+        // No items left, delete the meal summary too
+        await supabase
+          .from('food_entries')
+          .delete()
+          .eq('meal_id', mealId)
+          .eq('is_meal_summary', true);
+      }
+
+      onRefresh();
+    } catch (error) {
+      console.error('Error deleting item:', error);
+      alert('Failed to delete item. Please try again.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const calculateProgress = (): DailyProgress => {
-    const totals = todayEntries.reduce(
+    // Only count meal summaries to avoid double-counting
+    const summaries = todayEntries.filter((e) => e.is_meal_summary);
+    const totals = summaries.reduce(
       (acc, entry) => ({
         calories: acc.calories + entry.calories,
         protein: acc.protein + entry.protein,
@@ -44,32 +127,88 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
     };
   };
 
+  // Group entries by meal
+  const groupMeals = (): MealGroup[] => {
+    const mealMap = new Map<string, MealGroup>();
+
+    todayEntries.forEach((entry) => {
+      if (entry.is_meal_summary && entry.meal_id) {
+        const items = todayEntries.filter(
+          (e) => e.meal_id === entry.meal_id && !e.is_meal_summary
+        );
+
+        mealMap.set(entry.meal_id, {
+          id: entry.meal_id,
+          meal_type: entry.meal_type || 'snack',
+          time: entry.time,
+          items,
+          totals: {
+            calories: entry.calories,
+            protein: entry.protein,
+            carbs: entry.carbs,
+            fat: entry.fat,
+          },
+        });
+      }
+    });
+
+    return Array.from(mealMap.values());
+  };
+
+  const toggleMeal = (mealId: string) => {
+    const newExpanded = new Set(expandedMeals);
+    if (newExpanded.has(mealId)) {
+      newExpanded.delete(mealId);
+    } else {
+      newExpanded.add(mealId);
+    }
+    setExpandedMeals(newExpanded);
+  };
+
+  const getMealEmoji = (mealType: string) => {
+    switch (mealType) {
+      case 'breakfast':
+        return '🍳';
+      case 'lunch':
+        return '🍽️';
+      case 'dinner':
+        return '🍴';
+      case 'snack':
+        return '🍎';
+      default:
+        return '🍽️';
+    }
+  };
+
   const progress = calculateProgress();
+  const meals = groupMeals();
   const currentDate = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
   });
 
-  const MacroCircle = ({ 
-    label, 
-    current, 
-    goal, 
-    percent, 
-    color 
-  }: { 
-    label: string; 
-    current: number; 
-    goal: number; 
-    percent: number; 
+  const MacroCircle = ({
+    label,
+    current,
+    goal,
+    percent,
+    color,
+    onClick,
+  }: {
+    label: string;
+    current: number;
+    goal: number;
+    percent: number;
     color: string;
+    onClick: () => void;
   }) => {
     const radius = 40;
     const circumference = 2 * Math.PI * radius;
     const offset = circumference * (1 - percent / 100);
 
     return (
-      <div className="text-center">
+      <div className="text-center cursor-pointer" onClick={onClick}>
         <div className="relative inline-block mb-2">
           <svg className="w-24 h-24">
             <circle
@@ -103,7 +242,101 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
         </div>
         <div className="text-sm font-semibold text-gray-900">{label}</div>
         <div className="text-xs text-gray-500">
-          {Math.round(current)} / {goal}{label === 'Calories' ? '' : 'g'}
+          {Math.round(current)} / {goal}
+          {label === 'Calories' ? '' : 'g'}
+        </div>
+      </div>
+    );
+  };
+
+  const BreakdownModal = ({ macroType }: { macroType: string }) => {
+    const items = todayEntries.filter((e) => !e.is_meal_summary);
+    const sortedItems = [...items].sort((a, b) => {
+      const key = macroType.toLowerCase() as 'calories' | 'protein' | 'carbs' | 'fat';
+      return b[key] - a[key];
+    });
+
+    const total = progress[macroType.toLowerCase() as keyof DailyProgress];
+
+    return (
+      <div
+        className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+        onClick={() => setShowBreakdownModal(null)}
+      >
+        <div
+          className="bg-white rounded-2xl max-w-md w-full max-h-[80vh] overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-bold text-gray-900">
+                {macroType} Breakdown
+              </h2>
+              <button
+                onClick={() => setShowBreakdownModal(null)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+            <div className="text-sm text-gray-600 mt-1">
+              {Math.round(total.current)} / {total.goal}
+              {macroType === 'Calories' ? '' : 'g'} ({Math.round(total.percent)}%)
+            </div>
+          </div>
+
+          <div className="overflow-y-auto max-h-[60vh] p-6">
+            {sortedItems.length === 0 ? (
+              <p className="text-center text-gray-500 py-8">No items logged yet</p>
+            ) : (
+              <div className="space-y-3">
+                {sortedItems.map((item) => {
+                  const key = macroType.toLowerCase() as
+                    | 'calories'
+                    | 'protein'
+                    | 'carbs'
+                    | 'fat';
+                  const value = item[key];
+                  const percentage =
+                    total.current > 0 ? (value / total.current) * 100 : 0;
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="flex justify-between items-center p-3 bg-gray-50 rounded-lg"
+                    >
+                      <div className="flex-1">
+                        <div className="font-medium text-gray-900 text-sm">
+                          {item.food_description}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          {Math.round(percentage)}% of total
+                        </div>
+                      </div>
+                      <div className="text-right ml-4">
+                        <div className="font-semibold text-gray-900">
+                          {value}
+                          {macroType === 'Calories' ? '' : 'g'}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -116,8 +349,18 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-bold">Dashboard</h1>
           <button onClick={onRefresh} className="p-2">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
             </svg>
           </button>
         </div>
@@ -134,6 +377,7 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
               goal={progress.calories.goal}
               percent={progress.calories.percent}
               color="#3b82f6"
+              onClick={() => setShowBreakdownModal('Calories')}
             />
             <MacroCircle
               label="Protein"
@@ -141,6 +385,7 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
               goal={progress.protein.goal}
               percent={progress.protein.percent}
               color="#10b981"
+              onClick={() => setShowBreakdownModal('Protein')}
             />
             <MacroCircle
               label="Carbs"
@@ -148,6 +393,7 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
               goal={progress.carbs.goal}
               percent={progress.carbs.percent}
               color="#f59e0b"
+              onClick={() => setShowBreakdownModal('Carbs')}
             />
             <MacroCircle
               label="Fat"
@@ -155,6 +401,7 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
               goal={progress.fat.goal}
               percent={progress.fat.percent}
               color="#ef4444"
+              onClick={() => setShowBreakdownModal('Fat')}
             />
           </div>
         </div>
@@ -164,44 +411,170 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
       <div className="px-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold text-gray-900">Today's Log</h2>
-          <span className="text-sm text-gray-500">{todayEntries.length} entries</span>
+          <span className="text-sm text-gray-500">{meals.length} meals</span>
         </div>
 
-        {todayEntries.length === 0 ? (
+        {meals.length === 0 ? (
           <div className="bg-white rounded-lg shadow p-8 text-center">
-            <svg className="w-12 h-12 mx-auto text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            <svg
+              className="w-12 h-12 mx-auto text-gray-400 mb-3"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
             </svg>
             <p className="text-gray-600 mb-1">No food logged yet today</p>
-            <p className="text-sm text-gray-500">Tap "Log Food" below to get started</p>
+            <p className="text-sm text-gray-500">
+              Tap "Log Food" below to get started
+            </p>
           </div>
         ) : (
           <div className="space-y-3">
-            {todayEntries.map((entry) => (
-              <div key={entry.id} className="bg-white rounded-lg shadow p-4">
-                <div className="flex justify-between items-start mb-2">
-                  <div className="flex-1">
-                    <div className="font-semibold text-gray-900">
-                      {entry.food_description}
+            {meals.map((meal) => {
+              const isExpanded = expandedMeals.has(meal.id);
+
+              return (
+                <div key={meal.id} className="bg-white rounded-lg shadow overflow-hidden">
+                  {/* Meal Summary */}
+                  <div
+                    className="p-4 hover:bg-gray-50"
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <div 
+                        className="flex items-center gap-2 flex-1 cursor-pointer"
+                        onClick={() => toggleMeal(meal.id)}
+                      >
+                        <span className="text-xl">{getMealEmoji(meal.meal_type)}</span>
+                        <div>
+                          <div className="font-semibold text-gray-900 capitalize">
+                            {meal.meal_type}
+                          </div>
+                          <div className="text-sm text-gray-500">{meal.time}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <div className="text-sm font-semibold text-gray-900">
+                            {meal.totals.calories} cal
+                          </div>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteMeal(meal.id);
+                          }}
+                          disabled={deletingId === meal.id}
+                          className="text-red-500 hover:text-red-700 p-1 disabled:opacity-50"
+                        >
+                          <svg
+                            className="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth="2"
+                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                            />
+                          </svg>
+                        </button>
+                        <button 
+                          onClick={() => toggleMeal(meal.id)}
+                          className="cursor-pointer"
+                        >
+                          <svg
+                            className={`w-5 h-5 text-gray-400 transition-transform ${
+                              isExpanded ? 'rotate-180' : ''
+                            }`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth="2"
+                              d="M19 9l-7 7-7-7"
+                            />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
-                    <div className="text-sm text-gray-500">{entry.time}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-semibold text-gray-900">
-                      {entry.calories} cal
+                    <div 
+                      className="flex gap-4 text-xs text-gray-600 cursor-pointer"
+                      onClick={() => toggleMeal(meal.id)}
+                    >
+                      <span>P: {meal.totals.protein}g</span>
+                      <span>C: {meal.totals.carbs}g</span>
+                      <span>F: {meal.totals.fat}g</span>
                     </div>
                   </div>
+
+                  {/* Expanded Items */}
+                  {isExpanded && meal.items.length > 0 && (
+                    <div className="border-t border-gray-200 bg-gray-50 px-4 py-2">
+                      <div className="space-y-2">
+                        {meal.items.map((item) => (
+                          <div
+                            key={item.id}
+                            className="flex justify-between items-start py-2 text-sm group"
+                          >
+                            <div className="flex-1">
+                              <div className="text-gray-700">
+                                {item.food_description}
+                              </div>
+                            </div>
+                            <div className="flex items-start gap-2 ml-4">
+                              <div className="text-right">
+                                <div className="text-gray-900 font-medium">
+                                  {item.calories} cal
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  P: {item.protein}g · C: {item.carbs}g · F: {item.fat}g
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handleDeleteItem(item.id, meal.id)}
+                                disabled={deletingId === item.id}
+                                className="text-red-500 hover:text-red-700 p-1 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                              >
+                                <svg
+                                  className="w-4 h-4"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth="2"
+                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                  />
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className="flex gap-4 text-xs text-gray-600">
-                  <span>P: {entry.protein}g</span>
-                  <span>C: {entry.carbs}g</span>
-                  <span>F: {entry.fat}g</span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
+
+      {/* Breakdown Modal */}
+      {showBreakdownModal && <BreakdownModal macroType={showBreakdownModal} />}
     </div>
   );
 }

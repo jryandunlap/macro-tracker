@@ -88,26 +88,59 @@ export default function LogFood({ userProfile, onComplete }: LogFoodProps) {
 
       if (!response.ok) throw new Error('Failed to parse food');
 
-      const nutritionData = await response.json();
-
-      // Save to database
+      const mealData = await response.json();
       const now = new Date();
-      await supabase.from('food_entries').insert([
-        {
-          user_id: userProfile.id,
-          date: now.toISOString().split('T')[0],
-          time: now.toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-          }),
-          food_description: foodInput,
-          canonical_name: nutritionData.canonical_name,
-          calories: nutritionData.estimated_calories,
-          protein: nutritionData.estimated_protein,
-          carbs: nutritionData.estimated_carbs,
-          fat: nutritionData.estimated_fat,
-        },
-      ]);
+      const mealId = crypto.randomUUID();
+      const currentTime = now.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+
+      // Calculate meal totals
+      const mealTotals = mealData.items.reduce(
+        (acc: any, item: any) => ({
+          calories: acc.calories + item.estimated_calories,
+          protein: acc.protein + item.estimated_protein,
+          carbs: acc.carbs + item.estimated_carbs,
+          fat: acc.fat + item.estimated_fat,
+        }),
+        { calories: 0, protein: 0, carbs: 0, fat: 0 }
+      );
+
+      // Create meal summary entry
+      const mealSummary = {
+        user_id: userProfile.id,
+        date: now.toISOString().split('T')[0],
+        time: currentTime,
+        food_description: foodInput,
+        canonical_name: `${mealData.meal_type} meal`,
+        calories: mealTotals.calories,
+        protein: mealTotals.protein,
+        carbs: mealTotals.carbs,
+        fat: mealTotals.fat,
+        meal_id: mealId,
+        meal_type: mealData.meal_type,
+        is_meal_summary: true,
+      };
+
+      // Create individual item entries
+      const itemEntries = mealData.items.map((item: any) => ({
+        user_id: userProfile.id,
+        date: now.toISOString().split('T')[0],
+        time: currentTime,
+        food_description: item.original_description,
+        canonical_name: item.canonical_name,
+        calories: item.estimated_calories,
+        protein: item.estimated_protein,
+        carbs: item.estimated_carbs,
+        fat: item.estimated_fat,
+        meal_id: mealId,
+        meal_type: mealData.meal_type,
+        is_meal_summary: false,
+      }));
+
+      // Insert all entries (summary + items)
+      await supabase.from('food_entries').insert([mealSummary, ...itemEntries]);
 
       setFoodInput('');
       onComplete();

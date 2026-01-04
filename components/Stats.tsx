@@ -296,10 +296,10 @@ export default function Stats({ userProfile, dailyGoals }: StatsProps) {
                     });
 
                     return (
-                      <div key={day.date} className="flex-1 flex flex-col items-center">
-                        <div className="w-full relative" style={{ height: '100%' }}>
+                      <div key={day.date} className="flex-1 flex flex-col items-center gap-2">
+                        <div className="w-full h-48 relative flex items-end justify-center">
                           <div
-                            className={`absolute bottom-0 w-full rounded-t transition-all ${
+                            className={`w-full rounded-t transition-all ${
                               isToday
                                 ? 'bg-green-500'
                                 : day.protein > 0
@@ -309,14 +309,14 @@ export default function Stats({ userProfile, dailyGoals }: StatsProps) {
                             style={{ height: `${Math.max(height, 5)}%` }}
                           >
                             {day.protein > 0 && (
-                              <div className="text-xs text-center mt-2 font-medium text-gray-700">
+                              <div className="text-xs text-center mt-1 font-medium text-gray-700">
                                 {day.protein}
                               </div>
                             )}
                           </div>
                         </div>
                         <div
-                          className={`text-xs text-center mt-2 font-medium ${
+                          className={`text-xs text-center font-medium ${
                             isToday ? 'text-green-600' : 'text-gray-700'
                           }`}
                         >
