@@ -138,22 +138,22 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
       calories: {
         current: totals.calories,
         goal: dailyGoals.calories,
-        percent: Math.min(100, (totals.calories / dailyGoals.calories) * 100),
+        percent: (totals.calories / dailyGoals.calories) * 100,
       },
       protein: {
         current: totals.protein,
         goal: dailyGoals.protein,
-        percent: Math.min(100, (totals.protein / dailyGoals.protein) * 100),
+        percent: (totals.protein / dailyGoals.protein) * 100,
       },
       carbs: {
         current: totals.carbs,
         goal: dailyGoals.carbs,
-        percent: Math.min(100, (totals.carbs / dailyGoals.carbs) * 100),
+        percent: (totals.carbs / dailyGoals.carbs) * 100,
       },
       fat: {
         current: totals.fat,
         goal: dailyGoals.fat,
-        percent: Math.min(100, (totals.fat / dailyGoals.fat) * 100),
+        percent: (totals.fat / dailyGoals.fat) * 100,
       },
     };
   };
@@ -325,9 +325,9 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
     const circumference = 2 * Math.PI * radius;
     const offset = circumference * (1 - percent / 100);
 
-    // Show "close gap" button if it's after 6pm and not at goal
+    // Show "close gap" button if it's after 5pm and not at goal
     const currentHour = new Date().getHours();
-    const showCloseGap = currentHour >= 18 && percent < 90;
+    const showCloseGap = currentHour >= 17 && percent < 90;
     const isOverLimit = percent > 115;
     const isOnTarget = percent >= 90 && percent <= 115;
 
