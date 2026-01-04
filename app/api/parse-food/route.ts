@@ -15,48 +15,79 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 1500,
+        max_tokens: 2000,
         messages: [
           {
             role: 'user',
-            content: `You are a nutrition expert. The user has logged: "${foodDescription}"
+            content: `You are a nutrition expert. The user has logged their food: "${foodDescription}"
 
-Analyze this and return ONLY a JSON object (no markdown, no explanation) with:
+Analyze this and identify ALL distinct meals/snacks mentioned. The user might describe:
+- A single meal (e.g., "grilled chicken and rice")
+- Multiple meals (e.g., "For breakfast I had eggs. For lunch I had a sandwich.")
+- An entire day of eating
 
-1. meal_type: Determine if this is "breakfast", "lunch", "dinner", or "snack" based on context/foods mentioned
-2. items: An array of individual food items, each with:
-   - canonical_name: Normalized name (e.g., "Grilled Chicken Breast")
-   - original_description: The original text for this item from the user's input
-   - estimated_calories: Calories for THIS item
-   - estimated_protein: Protein in grams for THIS item
-   - estimated_carbs: Carbs in grams for THIS item
-   - estimated_fat: Fat in grams for THIS item
+Return ONLY a JSON object (no markdown, no explanation) with:
 
-Important:
-- Break down the meal into individual food items
-- Make reasonable assumptions about portion sizes if not specified
-- Each item should have its own nutrition values
-- The sum of all items should equal the total meal nutrition
-
-Example format:
 {
-  "meal_type": "breakfast",
-  "items": [
+  "meals": [
     {
-      "canonical_name": "Scrambled Eggs",
-      "original_description": "2 scrambled eggs",
-      "estimated_calories": 180,
-      "estimated_protein": 12,
-      "estimated_carbs": 2,
-      "estimated_fat": 12
+      "meal_type": "breakfast" | "lunch" | "dinner" | "snack",
+      "items": [
+        {
+          "canonical_name": "Normalized food name",
+          "original_description": "Original text from user",
+          "estimated_calories": number,
+          "estimated_protein": number,
+          "estimated_carbs": number,
+          "estimated_fat": number
+        }
+      ]
+    }
+  ]
+}
+
+Rules:
+1. Identify meal type from context clues:
+   - Explicit: "for breakfast", "lunch was", "had for dinner"
+   - Time-based: "this morning" = breakfast, "afternoon" = lunch/snack
+   - Food type: eggs/cereal = breakfast, sandwich = lunch, steak = dinner
+   - Default: Use "snack" if unclear
+
+2. Break down EACH meal into individual food items
+3. Make reasonable portion assumptions
+4. Each item gets its own nutrition values
+
+Examples:
+
+Input: "For breakfast I had 2 eggs and bacon. Lunch was a chicken sandwich."
+Output:
+{
+  "meals": [
+    {
+      "meal_type": "breakfast",
+      "items": [
+        {"canonical_name": "Eggs", "original_description": "2 eggs", "estimated_calories": 140, ...},
+        {"canonical_name": "Bacon", "original_description": "bacon", "estimated_calories": 86, ...}
+      ]
     },
     {
-      "canonical_name": "Bacon",
-      "original_description": "3 strips of bacon",
-      "estimated_calories": 129,
-      "estimated_protein": 9,
-      "estimated_carbs": 0,
-      "estimated_fat": 10
+      "meal_type": "lunch",
+      "items": [
+        {"canonical_name": "Chicken Sandwich", "original_description": "chicken sandwich", "estimated_calories": 450, ...}
+      ]
+    }
+  ]
+}
+
+Input: "Had pizza"
+Output:
+{
+  "meals": [
+    {
+      "meal_type": "snack",
+      "items": [
+        {"canonical_name": "Pizza", "original_description": "pizza", "estimated_calories": 285, ...}
+      ]
     }
   ]
 }
