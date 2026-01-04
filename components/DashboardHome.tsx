@@ -14,6 +14,37 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
   const [expandedMeals, setExpandedMeals] = useState<Set<string>>(new Set());
   const [showBreakdownModal, setShowBreakdownModal] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showGapModal, setShowGapModal] = useState<string | null>(null);
+  const [gapSuggestions, setGapSuggestions] = useState<any[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+
+  const handleCloseGap = async (macroType: string, currentValue: number, goalValue: number) => {
+    setShowGapModal(macroType);
+    setLoadingSuggestions(true);
+
+    try {
+      const gap = goalValue - currentValue;
+      const response = await fetch('/api/gap-suggestions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          macroType: macroType.toLowerCase(),
+          gap,
+          currentProgress: { calories: progress.calories.current, protein: progress.protein.current, carbs: progress.carbs.current, fat: progress.fat.current }
+        }),
+      });
+
+      if (!response.ok) throw new Error('Failed to get suggestions');
+
+      const data = await response.json();
+      setGapSuggestions(data.suggestions || []);
+    } catch (error) {
+      console.error('Error getting suggestions:', error);
+      setGapSuggestions([]);
+    } finally {
+      setLoadingSuggestions(false);
+    }
+  };
 
   const handleDeleteMeal = async (mealId: string) => {
     if (!confirm('Delete this entire meal? This will remove all items.')) return;
@@ -188,6 +219,93 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
     day: 'numeric',
   });
 
+  const GapSuggestionsModal = () => {
+    if (!showGapModal) return null;
+
+    const macroKey = showGapModal.toLowerCase() as 'calories' | 'protein' | 'carbs' | 'fat';
+    const currentProgress = progress[macroKey];
+    const gap = currentProgress.goal - currentProgress.current;
+
+    return (
+      <div
+        className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+        onClick={() => setShowGapModal(null)}
+      >
+        <div
+          className="bg-white rounded-2xl max-w-md w-full max-h-[80vh] overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-bold text-gray-900">
+                Close Your {showGapModal} Gap
+              </h2>
+              <button
+                onClick={() => setShowGapModal(null)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="text-sm text-gray-600 mt-2">
+              You need ~{Math.round(gap)}{showGapModal === 'Calories' ? '' : 'g'} more {showGapModal.toLowerCase()} to hit your goal
+            </div>
+          </div>
+
+          <div className="overflow-y-auto max-h-[60vh] p-6">
+            {loadingSuggestions ? (
+              <div className="text-center py-12">
+                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                <p className="mt-4 text-gray-600">Getting suggestions...</p>
+              </div>
+            ) : gapSuggestions.length === 0 ? (
+              <p className="text-center text-gray-500 py-8">No suggestions available</p>
+            ) : (
+              <div className="space-y-4">
+                {gapSuggestions.map((suggestion, idx) => (
+                  <div key={idx} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex justify-between items-start mb-2">
+                      <h3 className="font-semibold text-gray-900">{suggestion.name}</h3>
+                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                        Option {idx + 1}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-700 mb-3">{suggestion.description}</p>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="bg-white p-2 rounded">
+                        <div className="text-gray-500">Calories</div>
+                        <div className="font-semibold text-gray-900">{suggestion.calories}</div>
+                      </div>
+                      <div className="bg-white p-2 rounded">
+                        <div className="text-gray-500">Protein</div>
+                        <div className="font-semibold text-gray-900">{suggestion.protein}g</div>
+                      </div>
+                      <div className="bg-white p-2 rounded">
+                        <div className="text-gray-500">Carbs</div>
+                        <div className="font-semibold text-gray-900">{suggestion.carbs}g</div>
+                      </div>
+                      <div className="bg-white p-2 rounded">
+                        <div className="text-gray-500">Fat</div>
+                        <div className="font-semibold text-gray-900">{suggestion.fat}g</div>
+                      </div>
+                    </div>
+                    {suggestion.gap_closure && (
+                      <div className="mt-3 text-xs text-green-700 bg-green-50 px-3 py-2 rounded">
+                        ✓ Closes {Math.round(suggestion.gap_closure)}% of your {showGapModal.toLowerCase()} gap
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const MacroCircle = ({
     label,
     current,
@@ -207,44 +325,61 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
     const circumference = 2 * Math.PI * radius;
     const offset = circumference * (1 - percent / 100);
 
+    // Show "close gap" button if it's after 6pm and not at goal
+    const currentHour = new Date().getHours();
+    const showCloseGap = currentHour >= 18 && percent < 90;
+
     return (
-      <div className="text-center cursor-pointer" onClick={onClick}>
-        <div className="relative inline-block mb-2">
-          <svg className="w-24 h-24">
-            <circle
-              cx="48"
-              cy="48"
-              r={radius}
-              stroke="#e5e7eb"
-              strokeWidth="8"
-              fill="none"
-            />
-            <circle
-              cx="48"
-              cy="48"
-              r={radius}
-              stroke={color}
-              strokeWidth="8"
-              fill="none"
-              strokeDasharray={circumference}
-              strokeDashoffset={offset}
-              transform="rotate(-90 48 48)"
-              className="transition-all duration-300"
-            />
-          </svg>
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center">
-              <div className="text-lg font-bold text-gray-900">
-                {Math.round(percent)}%
+      <div className="text-center">
+        <div className="cursor-pointer" onClick={onClick}>
+          <div className="relative inline-block mb-2">
+            <svg className="w-24 h-24">
+              <circle
+                cx="48"
+                cy="48"
+                r={radius}
+                stroke="#e5e7eb"
+                strokeWidth="8"
+                fill="none"
+              />
+              <circle
+                cx="48"
+                cy="48"
+                r={radius}
+                stroke={color}
+                strokeWidth="8"
+                fill="none"
+                strokeDasharray={circumference}
+                strokeDashoffset={offset}
+                transform="rotate(-90 48 48)"
+                className="transition-all duration-300"
+              />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-center">
+                <div className="text-lg font-bold text-gray-900">
+                  {Math.round(percent)}%
+                </div>
               </div>
             </div>
           </div>
+          <div className="text-sm font-semibold text-gray-900">{label}</div>
+          <div className="text-xs text-gray-500">
+            {Math.round(current)} / {goal}
+            {label === 'Calories' ? '' : 'g'}
+          </div>
         </div>
-        <div className="text-sm font-semibold text-gray-900">{label}</div>
-        <div className="text-xs text-gray-500">
-          {Math.round(current)} / {goal}
-          {label === 'Calories' ? '' : 'g'}
-        </div>
+        {showCloseGap && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleCloseGap(label, current, goal);
+            }}
+            className="mt-2 text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full hover:bg-blue-200 transition-colors"
+          >
+            Close gap! 🎯
+          </button>
+        )}
       </div>
     );
   };
@@ -575,6 +710,9 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
 
       {/* Breakdown Modal */}
       {showBreakdownModal && <BreakdownModal macroType={showBreakdownModal} />}
+
+      {/* Gap Suggestions Modal */}
+      <GapSuggestionsModal />
     </div>
   );
 }
