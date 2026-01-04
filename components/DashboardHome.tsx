@@ -328,6 +328,8 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
     // Show "close gap" button if it's after 6pm and not at goal
     const currentHour = new Date().getHours();
     const showCloseGap = currentHour >= 18 && percent < 90;
+    const isOverLimit = percent > 115;
+    const isOnTarget = percent >= 90 && percent <= 115;
 
     return (
       <div className="text-center">
@@ -379,6 +381,16 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
           >
             Close gap! 🎯
           </button>
+        )}
+        {isOnTarget && (
+          <div className="mt-2 text-xs bg-green-100 text-green-700 px-3 py-1 rounded-full">
+            On target ✓
+          </div>
+        )}
+        {isOverLimit && (
+          <div className="mt-2 text-xs bg-orange-100 text-orange-700 px-3 py-1 rounded-full">
+            Over limit ⚠️
+          </div>
         )}
       </div>
     );
