@@ -35,15 +35,16 @@ export default function Dashboard({ userProfile }: DashboardProps) {
       console.log('Daily goals:', goals, 'Error:', goalsError);
       setDailyGoals(goals);
 
-      // Load today's entries
-      const today = new Date().toISOString().split('T')[0];
-      console.log('Querying for date:', today);
+      // Load today's entries - use local date, not UTC
+      const today = new Date();
+      const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      console.log('Querying for date:', localDate);
       
       const { data: entries, error: entriesError } = await supabase
         .from('food_entries')
         .select('*')
         .eq('user_id', userProfile.id)
-        .eq('date', today)
+        .eq('date', localDate)
         .order('created_at', { ascending: false });
 
       console.log('Food entries:', entries, 'Error:', entriesError);
