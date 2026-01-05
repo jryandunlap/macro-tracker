@@ -1,4 +1,5 @@
 'use client';
+import { getLocalDateString, getDaysAgo } from '@/lib/dateUtils';
 
 import { useState, useEffect } from 'react';
 import { UserProfile, QuickAdd } from '@/types';
@@ -28,7 +29,7 @@ export default function LogFood({ userProfile, onComplete }: LogFoodProps) {
         .from('food_entries')
         .select('*')
         .eq('user_id', userProfile.id)
-        .gte('date', thirtyDaysAgo.toISOString().split('T')[0]);
+        .gte('date', getDaysAgo(30));
 
       if (entries && entries.length > 0) {
         // Group by canonical_name and calculate averages
@@ -90,7 +91,7 @@ export default function LogFood({ userProfile, onComplete }: LogFoodProps) {
 
       const parsedData = await response.json();
       const now = new Date();
-      const currentDate = now.toISOString().split('T')[0];
+      const currentDate = getLocalDateString(now);
       const currentTime = now.toLocaleTimeString('en-US', {
         hour: 'numeric',
         minute: '2-digit',
@@ -173,7 +174,7 @@ export default function LogFood({ userProfile, onComplete }: LogFoodProps) {
       await supabase.from('food_entries').insert([
         {
           user_id: userProfile.id,
-          date: now.toISOString().split('T')[0],
+          date: getLocalDateString(now),
           time: now.toLocaleTimeString('en-US', {
             hour: 'numeric',
             minute: '2-digit',
