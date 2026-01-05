@@ -23,24 +23,30 @@ export default function Dashboard({ userProfile }: DashboardProps) {
 
   async function loadData() {
     try {
+      console.log('Loading data for user:', userProfile.id);
+      
       // Load daily goals
-      const { data: goals } = await supabase
+      const { data: goals, error: goalsError } = await supabase
         .from('daily_goals')
         .select('*')
         .eq('user_id', userProfile.id)
         .single();
 
+      console.log('Daily goals:', goals, 'Error:', goalsError);
       setDailyGoals(goals);
 
       // Load today's entries
       const today = new Date().toISOString().split('T')[0];
-      const { data: entries } = await supabase
+      console.log('Querying for date:', today);
+      
+      const { data: entries, error: entriesError } = await supabase
         .from('food_entries')
         .select('*')
         .eq('user_id', userProfile.id)
         .eq('date', today)
         .order('created_at', { ascending: false });
 
+      console.log('Food entries:', entries, 'Error:', entriesError);
       setTodayEntries(entries || []);
     } catch (error) {
       console.error('Error loading data:', error);
