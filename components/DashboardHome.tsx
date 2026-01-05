@@ -18,6 +18,13 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
   const [gapSuggestions, setGapSuggestions] = useState<any[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
 
+  // DEBUG: Log what we're receiving
+  console.log('DashboardHome received:', {
+    todayEntriesCount: todayEntries.length,
+    todayEntries: todayEntries,
+    dailyGoals: dailyGoals
+  });
+
   const handleCloseGap = async (macroType: string, currentValue: number, goalValue: number) => {
     setShowGapModal(macroType);
     setLoadingSuggestions(true);
