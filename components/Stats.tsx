@@ -23,12 +23,15 @@ export default function Stats({ userProfile, dailyGoals }: StatsProps) {
     try {
       const daysAgo = new Date();
       daysAgo.setDate(daysAgo.getDate() - parseInt(period));
+      
+      // Use local date, not UTC
+      const localDate = `${daysAgo.getFullYear()}-${String(daysAgo.getMonth() + 1).padStart(2, '0')}-${String(daysAgo.getDate()).padStart(2, '0')}`;
 
       const { data } = await supabase
         .from('food_entries')
         .select('*')
         .eq('user_id', userProfile.id)
-        .gte('date', daysAgo.toISOString().split('T')[0])
+        .gte('date', localDate)
         .order('date', { ascending: true });
 
       setEntries(data || []);
@@ -79,13 +82,16 @@ export default function Stats({ userProfile, dailyGoals }: StatsProps) {
   const calculateStreak = () => {
     if (entries.length === 0) return 0;
 
-    const uniqueDates = [...new Set(entries.map((e) => e.date))].sort().reverse();
+    const uniqueDates = Array.from(new Set(entries.map((e) => e.date))).sort().reverse();
     let streak = 0;
-    const today = new Date().toISOString().split('T')[0];
-    let checkDate = new Date(today);
+    
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    
+    let checkDate = new Date(todayStr);
 
     for (const date of uniqueDates) {
-      const entryDate = new Date(date);
+      const entryDate = new Date(date + 'T00:00:00');
       const diffDays = Math.floor(
         (checkDate.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24)
       );
@@ -101,26 +107,41 @@ export default function Stats({ userProfile, dailyGoals }: StatsProps) {
     return streak;
   };
 
-  const getLast7DaysProtein = () => {
+  // Get last 7 days of data for multi-line chart
+  const getLast7DaysData = () => {
     const last7Days = [];
     for (let i = 6; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
       last7Days.push(dateStr);
     }
 
     return last7Days.map((date) => {
       const dayEntries = entries.filter((e) => e.date === date);
-      const protein = dayEntries.reduce((sum, e) => sum + e.protein, 0);
-      return { date, protein };
+      const totals = dayEntries.reduce(
+        (acc, e) => ({
+          calories: acc.calories + e.calories,
+          protein: acc.protein + e.protein,
+          carbs: acc.carbs + e.carbs,
+          fat: acc.fat + e.fat,
+        }),
+        { calories: 0, protein: 0, carbs: 0, fat: 0 }
+      );
+      
+      return { date, ...totals };
     });
   };
 
   const averages = calculateAverages();
   const streak = calculateStreak();
-  const proteinData = getLast7DaysProtein();
-  const maxProtein = Math.max(...proteinData.map((d) => d.protein), dailyGoals.protein);
+  const chartData = getLast7DaysData();
+  
+  // Calculate max values for scaling
+  const maxCalories = Math.max(...chartData.map((d) => d.calories), dailyGoals.calories);
+  const maxProtein = Math.max(...chartData.map((d) => d.protein), dailyGoals.protein);
+  const maxCarbs = Math.max(...chartData.map((d) => d.carbs), dailyGoals.carbs);
+  const maxFat = Math.max(...chartData.map((d) => d.fat), dailyGoals.fat);
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
@@ -181,7 +202,7 @@ export default function Stats({ userProfile, dailyGoals }: StatsProps) {
                 )}
               </h3>
               {averages.days === 0 ? (
-                <p className="text-gray-500 text-center py-4">
+                <p className="text-center text-gray-500 py-4">
                   No data for this period
                 </p>
               ) : (
@@ -280,56 +301,77 @@ export default function Stats({ userProfile, dailyGoals }: StatsProps) {
               </div>
             </div>
 
-            {/* Last 7 Days Protein Chart */}
-            {period === '7' && proteinData.length > 0 && (
+            {/* 7-Day Chart - Only show for 7-day period */}
+            {period === '7' && chartData.length > 0 && (
               <div className="bg-white rounded-2xl shadow p-6">
                 <h3 className="font-semibold text-gray-900 mb-4">
-                  Daily Protein Intake
+                  7-Day Macro Trends
                 </h3>
-                <div className="flex items-end justify-between h-48 gap-2">
-                  {proteinData.map((day, idx) => {
-                    const height = maxProtein > 0 ? (day.protein / maxProtein) * 100 : 0;
-                    const isToday = idx === proteinData.length - 1;
-                    const date = new Date(day.date);
-                    const dayLabel = date.toLocaleDateString('en-US', {
-                      weekday: 'short',
-                    });
+                
+                {/* Legend */}
+                <div className="flex flex-wrap gap-4 mb-4 text-xs">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+                    <span>Calories (/{Math.round(dailyGoals.calories / 10)})</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                    <span>Protein</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-amber-500"></div>
+                    <span>Carbs</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                    <span>Fat</span>
+                  </div>
+                </div>
 
+                {/* Simple line visualization */}
+                <div className="space-y-3">
+                  {chartData.map((day, idx) => {
+                    const date = new Date(day.date + 'T00:00:00');
+                    const dayLabel = date.toLocaleDateString('en-US', { weekday: 'short' });
+                    const hasData = day.calories > 0;
+                    
                     return (
-                      <div key={day.date} className="flex-1 flex flex-col items-center gap-2">
-                        <div className="w-full h-48 relative flex items-end justify-center">
-                          <div
-                            className={`w-full rounded-t transition-all ${
-                              isToday
-                                ? 'bg-green-500'
-                                : day.protein > 0
-                                ? 'bg-green-200'
-                                : 'bg-gray-200'
-                            }`}
-                            style={{ height: `${Math.max(height, 5)}%` }}
-                          >
-                            {day.protein > 0 && (
-                              <div className="text-xs text-center mt-1 font-medium text-gray-700">
-                                {day.protein}
-                              </div>
-                            )}
+                      <div key={day.date} className="flex items-center gap-2">
+                        <div className="w-10 text-xs text-gray-600 font-medium">{dayLabel}</div>
+                        <div className="flex-1 bg-gray-100 rounded-full h-8 relative overflow-hidden">
+                          {hasData ? (
+                            <>
+                              <div 
+                                className="absolute left-0 top-0 h-2 bg-blue-500 opacity-70"
+                                style={{ width: `${Math.min(100, (day.calories / 10) / (dailyGoals.calories / 10) * 100)}%` }}
+                              ></div>
+                              <div 
+                                className="absolute left-0 top-2 h-2 bg-green-500 opacity-70"
+                                style={{ width: `${Math.min(100, day.protein / dailyGoals.protein * 100)}%` }}
+                              ></div>
+                              <div 
+                                className="absolute left-0 top-4 h-2 bg-amber-500 opacity-70"
+                                style={{ width: `${Math.min(100, day.carbs / dailyGoals.carbs * 100)}%` }}
+                              ></div>
+                              <div 
+                                className="absolute left-0 top-6 h-2 bg-red-500 opacity-70"
+                                style={{ width: `${Math.min(100, day.fat / dailyGoals.fat * 100)}%` }}
+                              ></div>
+                            </>
+                          ) : (
+                            <div className="flex items-center justify-center h-full text-xs text-gray-400">
+                              No data
+                            </div>
+                          )}
+                        </div>
+                        {hasData && (
+                          <div className="w-16 text-xs text-gray-600 text-right">
+                            {day.protein}g P
                           </div>
-                        </div>
-                        <div
-                          className={`text-xs text-center font-medium ${
-                            isToday ? 'text-green-600' : 'text-gray-700'
-                          }`}
-                        >
-                          {dayLabel}
-                        </div>
+                        )}
                       </div>
                     );
                   })}
-                </div>
-                <div className="mt-4 text-center">
-                  <div className="text-sm text-gray-600">
-                    Goal: {dailyGoals.protein}g per day
-                  </div>
                 </div>
               </div>
             )}
