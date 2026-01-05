@@ -136,9 +136,13 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
   };
 
   const calculateProgress = (): DailyProgress => {
-    // Only count meal summaries to avoid double-counting
+    // Count meal summaries if they exist, otherwise count all entries (backward compatible)
     const summaries = todayEntries.filter((e) => e.is_meal_summary);
-    const totals = summaries.reduce(
+    
+    // If no summaries exist, use all entries (old schema compatibility)
+    const entriesToCount = summaries.length > 0 ? summaries : todayEntries;
+    
+    const totals = entriesToCount.reduce(
       (acc, entry) => ({
         calories: acc.calories + entry.calories,
         protein: acc.protein + entry.protein,
