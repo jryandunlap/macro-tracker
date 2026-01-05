@@ -24,22 +24,36 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
 
     try {
       const gap = goalValue - currentValue;
+      
+      console.log('Requesting gap suggestions:', { macroType, gap, currentValue, goalValue });
+      
       const response = await fetch('/api/gap-suggestions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           macroType: macroType.toLowerCase(),
           gap,
-          currentProgress: { calories: progress.calories.current, protein: progress.protein.current, carbs: progress.carbs.current, fat: progress.fat.current }
+          currentProgress: { 
+            calories: progress.calories.current, 
+            protein: progress.protein.current, 
+            carbs: progress.carbs.current, 
+            fat: progress.fat.current 
+          }
         }),
       });
 
-      if (!response.ok) throw new Error('Failed to get suggestions');
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API error response:', errorText);
+        throw new Error(`Failed to get suggestions: ${response.status}`);
+      }
 
       const data = await response.json();
+      console.log('Received suggestions:', data);
       setGapSuggestions(data.suggestions || []);
     } catch (error) {
       console.error('Error getting suggestions:', error);
+      alert('Failed to get suggestions. Check console for details.');
       setGapSuggestions([]);
     } finally {
       setLoadingSuggestions(false);
@@ -323,7 +337,13 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
   }) => {
     const radius = 40;
     const circumference = 2 * Math.PI * radius;
-    const offset = circumference * (1 - percent / 100);
+    
+    // Calculate how much of the circle to fill
+    const basePercent = Math.min(percent, 100);
+    const overagePercent = Math.max(0, percent - 100);
+    
+    const baseOffset = circumference * (1 - basePercent / 100);
+    const overageOffset = circumference * (1 - overagePercent / 100);
 
     // Show "close gap" button if it's after 5pm and not at goal
     const currentHour = new Date().getHours();
@@ -331,11 +351,28 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
     const isOverLimit = percent > 115;
     const isOnTarget = percent >= 90 && percent <= 115;
 
+    // Create darker version of color by adding 20% black
+    const getDarkerColor = (hexColor: string) => {
+      // Simple darkening - multiply RGB values by 0.8
+      const r = parseInt(hexColor.slice(1, 3), 16);
+      const g = parseInt(hexColor.slice(3, 5), 16);
+      const b = parseInt(hexColor.slice(5, 7), 16);
+      
+      const darkerR = Math.floor(r * 0.7);
+      const darkerG = Math.floor(g * 0.7);
+      const darkerB = Math.floor(b * 0.7);
+      
+      return `#${darkerR.toString(16).padStart(2, '0')}${darkerG.toString(16).padStart(2, '0')}${darkerB.toString(16).padStart(2, '0')}`;
+    };
+
+    const darkerColor = getDarkerColor(color);
+
     return (
       <div className="text-center">
         <div className="cursor-pointer" onClick={onClick}>
           <div className="relative inline-block mb-2">
             <svg className="w-24 h-24">
+              {/* Background circle */}
               <circle
                 cx="48"
                 cy="48"
@@ -344,6 +381,7 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
                 strokeWidth="8"
                 fill="none"
               />
+              {/* Main progress (0-100%) */}
               <circle
                 cx="48"
                 cy="48"
@@ -352,10 +390,25 @@ export default function DashboardHome({ todayEntries, dailyGoals, onRefresh }: D
                 strokeWidth="8"
                 fill="none"
                 strokeDasharray={circumference}
-                strokeDashoffset={offset}
+                strokeDashoffset={baseOffset}
                 transform="rotate(-90 48 48)"
                 className="transition-all duration-300"
               />
+              {/* Overage progress (100%+) in darker color */}
+              {percent > 100 && (
+                <circle
+                  cx="48"
+                  cy="48"
+                  r={radius}
+                  stroke={darkerColor}
+                  strokeWidth="8"
+                  fill="none"
+                  strokeDasharray={circumference}
+                  strokeDashoffset={overageOffset}
+                  transform="rotate(-90 48 48)"
+                  className="transition-all duration-300"
+                />
+              )}
             </svg>
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center">
